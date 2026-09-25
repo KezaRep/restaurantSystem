@@ -9,7 +9,13 @@ public class Message {
         SERVE_NOTIFY,        // Server báo Phục vụ lấy món
         REQUEST_CHECKOUT,   // Phục vụ xin bill
         BILL_INFO,          // Server gửi bill
-        CONFIRM_PAYMENT     // Phục vụ xác nhận thu tiền
+        CONFIRM_PAYMENT,    // Phục vụ xác nhận thu tiền
+        SNAPSHOT, 
+        ERROR,
+        ORDER_ACK, 
+        PAYMENT_DONE, 
+        REQUEST_SNAPSHOT,
+        PING, ADD_ITEM, ORDER_UPDATE
     }
 
     private Type type;
