@@ -16,12 +16,19 @@ public class KitchenClient extends BaseFrame {
     // ═══════════════════════════════════════════
     private final JPanel grid = Theme.panel(new GridLayout(0, 3, 16, 16));
     private final JLabel stats = Theme.label("0 đơn đang xử lý", 13, false, Theme.MUTED);
+    private String currentCategory = "Màn hình bếp";
 
     // ═══════════════════════════════════════════
     //  KHỞI TẠO
     // ═══════════════════════════════════════════
     public KitchenClient() {
         super("Kitchen Display System", "KITCHEN");
+        render();
+    }
+
+    @Override
+    protected void navigateTo(String item) {
+        currentCategory = item;
         render();
     }
 
@@ -64,6 +71,16 @@ public class KitchenClient extends BaseFrame {
         grid.removeAll();
 
         java.util.List<Protocol.Order> sorted = new ArrayList<>(orders.values());
+        
+        // Lọc theo danh mục
+        if (currentCategory.equals("Đơn mới")) {
+            sorted.removeIf(o -> !o.status().equals("NEW"));
+        } else if (currentCategory.equals("Đang chế biến")) {
+            sorted.removeIf(o -> !o.status().equals("COOKING"));
+        } else if (currentCategory.equals("Sẵn sàng")) {
+            sorted.removeIf(o -> !o.status().equals("READY"));
+        }
+
         sorted.sort(
                 Comparator.comparingInt((Protocol.Order o) ->
                         o.status().equals("NEW") ? 0
@@ -74,7 +91,7 @@ public class KitchenClient extends BaseFrame {
 
         if (sorted.isEmpty()) {
             grid.add(Theme.label(
-                    "Chưa có đơn nào. Đơn mới sẽ xuất hiện tự động.",
+                    "Không có đơn nào ở mục này.",
                     17, false, Theme.MUTED));
         }
 
@@ -158,19 +175,28 @@ public class KitchenClient extends BaseFrame {
     }
 
     private JButton buildCardAction(Protocol.Order o) {
-//        if (o.status().equals("READY")) {
-//            return Theme.label("Đã báo nhân viên phục vụ", 12, true, Theme.GREEN);
-//        }
-
         boolean isNew = o.status().equals("NEW");
+        boolean isCooking = o.status().equals("COOKING");
+        boolean isReady = o.status().equals("READY");
+
+        if (isReady) {
+            JButton action = Theme.button("✓ Đã hoàn thành", Theme.MUTED);
+            action.setEnabled(false);
+            return action;
+        }
+
         String next = isNew ? "COOKING" : "READY";
 
         JButton action = Theme.button(
                 isNew ? "Bắt đầu chế biến  →" : "✓ Hoàn thành & báo phục vụ",
                 isNew ? Theme.ORANGE : Theme.GREEN);
 
-        action.addActionListener(e ->
-                send(Message.Type.UPDATE_COOK_STATUS, o.table(), o.id() + "\t" + next));
+        action.addActionListener(e -> {
+            send(Message.Type.UPDATE_COOK_STATUS, o.table(), o.id() + "\t" + next);
+            // Sau khi hoàn thành xong món (chuyển sang READY), nếu mục hiện tại không phải
+            // "Màn hình bếp" hoặc "Sẵn sàng", giao diện sẽ tự động được cập nhật khi nhận message
+            // trả về từ Server để không hiển thị món này nữa.
+        });
 
         return action;
     }

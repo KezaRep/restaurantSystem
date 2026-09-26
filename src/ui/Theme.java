@@ -51,9 +51,23 @@ public final class Theme {
                 Graphics2D x = (Graphics2D) g.create();
                 x.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
                         RenderingHints.VALUE_ANTIALIAS_ON);
-                x.setColor(getModel().isPressed() ? bg.darker()
-                        : getModel().isRollover() ? bg.brighter() : bg);
-                x.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
+                boolean pressed = getModel().isPressed();
+                boolean hover = getModel().isRollover();
+                
+                if (pressed) {
+                    x.setColor(bg.darker());
+                } else if (hover) {
+                    // blend with white for a brighter hover effect
+                    x.setColor(new Color(
+                        Math.min(255, bg.getRed() + 20),
+                        Math.min(255, bg.getGreen() + 20),
+                        Math.min(255, bg.getBlue() + 20)
+                    ));
+                } else {
+                    x.setColor(bg);
+                }
+                
+                x.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
                 x.dispose();
                 super.paintComponent(g);
             }
@@ -96,9 +110,11 @@ public final class Theme {
                 Graphics2D x = (Graphics2D) g.create();
                 x.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
                         RenderingHints.VALUE_ANTIALIAS_ON);
-                // shadow
-                x.setColor(new Color(0, 0, 0, 14));
-                x.fillRoundRect(3, 5, getWidth() - 6, getHeight() - 6, 16, 16);
+                // shadow mượt hơn
+                x.setColor(new Color(0, 0, 0, 10));
+                x.fillRoundRect(4, 6, getWidth() - 8, getHeight() - 8, 18, 18);
+                x.setColor(new Color(0, 0, 0, 6));
+                x.fillRoundRect(2, 4, getWidth() - 4, getHeight() - 4, 18, 18);
                 // body
                 x.setColor(CARD);
                 x.fillRoundRect(0, 0, getWidth() - 6, getHeight() - 8, 16, 16);

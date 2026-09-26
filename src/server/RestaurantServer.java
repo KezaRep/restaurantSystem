@@ -27,7 +27,7 @@ public class RestaurantServer {
     }
 
     public static void main(String[] args) throws Exception {
-        int port = args.length > 0 ? Integer.parseInt(args[0]) : 8080;
+        int port = args.length > 0 ? Integer.parseInt(args[0]) : 5001;
         new RestaurantServer(port).start();
     }
 

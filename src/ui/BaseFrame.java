@@ -25,6 +25,9 @@ public abstract class BaseFrame extends JFrame {
     private final JPanel breadcrumb = Theme.panel(new FlowLayout(FlowLayout.LEFT, 6, 0));
     private final Deque<Runnable> history = new ArrayDeque<>();
     private JButton backBtn;
+    
+    protected int currentSideItem = 0;
+    private JPanel sideContainer;
 
     // ═══════════════════════════════════════════
     //  KHỞI TẠO
@@ -40,7 +43,9 @@ public abstract class BaseFrame extends JFrame {
         root.setBackground(Theme.BG);
         setContentPane(root);
 
-        root.add(buildSidebar(), BorderLayout.WEST);
+        sideContainer = new JPanel(new BorderLayout());
+        root.add(sideContainer, BorderLayout.WEST);
+        refreshSidebar();
 
         JPanel main = Theme.panel(new BorderLayout());
         main.setBorder(new EmptyBorder(22, 28, 24, 28));
@@ -57,7 +62,8 @@ public abstract class BaseFrame extends JFrame {
     // ═══════════════════════════════════════════
     //  SIDEBAR
     // ═══════════════════════════════════════════
-    private JPanel buildSidebar() {
+    protected void refreshSidebar() {
+        sideContainer.removeAll();
         JPanel side = new JPanel();
         side.setBackground(Theme.NAVY);
         side.setPreferredSize(new Dimension(228, 0));
@@ -65,7 +71,7 @@ public abstract class BaseFrame extends JFrame {
         side.setBorder(new EmptyBorder(32, 22, 24, 22));
 
         JLabel brand = Theme.label("RESTAURANT SYSTEM", 24, true, Color.WHITE);
-        brand.setAlignmentX(LEFT_ALIGNMENT);
+        brand.setAlignmentX(Component.LEFT_ALIGNMENT);
         side.add(brand);
 
         side.add(Box.createVerticalStrut(8));
@@ -73,7 +79,7 @@ public abstract class BaseFrame extends JFrame {
 
         String[] items = sideItems();
         for (int i = 0; i < items.length; i++) {
-            boolean active = i == 0;
+            boolean active = i == currentSideItem;
             Color fg = active ? new Color(255, 179, 134) : new Color(183, 192, 207);
 
             JPanel row = new JPanel(new BorderLayout());
@@ -81,7 +87,7 @@ public abstract class BaseFrame extends JFrame {
             row.setBackground(active ? Theme.NAVY_SOFT : Theme.NAVY);
             row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 46));
             row.setBorder(new EmptyBorder(0, 12, 0, 8));
-            row.setAlignmentX(LEFT_ALIGNMENT);
+            row.setAlignmentX(Component.LEFT_ALIGNMENT);
             row.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
             JLabel l = Theme.label(items[i], 14, true, fg);
@@ -97,7 +103,11 @@ public abstract class BaseFrame extends JFrame {
             int idx = i;
             row.addMouseListener(new MouseAdapter() {
                 @Override public void mouseClicked(MouseEvent e) {
-                    navigateTo(items[idx]);
+                    if (currentSideItem != idx) {
+                        currentSideItem = idx;
+                        refreshSidebar();
+                        navigateTo(items[idx]);
+                    }
                 }
                 @Override public void mouseEntered(MouseEvent e) {
                     if (!active) row.setBackground(Theme.NAVY_SOFT);
@@ -114,10 +124,12 @@ public abstract class BaseFrame extends JFrame {
         side.add(Box.createVerticalGlue());
 
         JLabel foot = Theme.label("TCP/IP  •  JAVA 21", 11, false, new Color(159, 171, 191));
-        foot.setAlignmentX(LEFT_ALIGNMENT);
+        foot.setAlignmentX(Component.LEFT_ALIGNMENT);
         side.add(foot);
 
-        return side;
+        sideContainer.add(side, BorderLayout.CENTER);
+        sideContainer.revalidate();
+        sideContainer.repaint();
     }
 
     /** Lớp con override để xử lý chuyển trang */
