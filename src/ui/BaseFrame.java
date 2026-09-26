@@ -19,7 +19,7 @@ public abstract class BaseFrame extends JFrame {
     protected JLabel connection = Theme.label("Chưa kết nối", 12, true, Theme.MUTED);
     protected JPanel content    = Theme.panel(new BorderLayout(0, 18));
     protected JTextField host   = Theme.field("localhost", 12);
-    protected JTextField port   = Theme.field("8080", 5);
+    protected JTextField port   = Theme.field("5001", 5);
 
     // ─── Điều hướng ───
     private final JPanel breadcrumb = Theme.panel(new FlowLayout(FlowLayout.LEFT, 6, 0));

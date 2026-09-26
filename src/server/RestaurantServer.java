@@ -1,12 +1,15 @@
 package server;
 
 import model.*;
+import dao.*;
+import database.DatabaseConnection;
+import java.sql.*;
 import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicLong;
+
 
 public class RestaurantServer {
 
@@ -15,8 +18,8 @@ public class RestaurantServer {
     // ═══════════════════════════════════════════
     private final int port;
     private final Set<ClientHandler> clients = ConcurrentHashMap.newKeySet();
-    private final Map<Long, Protocol.Order> orders = new LinkedHashMap<>();
-    private final AtomicLong nextId = new AtomicLong(1000);
+    private final OrderDAO orderDAO = new OrderDAO();
+    private final PaymentDAO paymentDAO = new PaymentDAO();
     private final ExecutorService pool = Executors.newCachedThreadPool();
 
     // ═══════════════════════════════════════════
@@ -35,6 +38,10 @@ public class RestaurantServer {
     //  VÒNG LẶP CHÍNH
     // ═══════════════════════════════════════════
     public void start() throws IOException {
+        try (Connection test = DatabaseConnection.getConnection()) {
+            System.out.println("[DATABASE] Connected to " + test.getCatalog());
+            orderDAO.active();
+        } catch (SQLException ex) { throw new IOException("Aiven database unavailable: " + ex.getMessage(), ex); }
         try (ServerSocket ss = new ServerSocket(port)) {
             System.out.println("[SERVER] Listening TCP port " + port);
             while (true) {
@@ -51,9 +58,9 @@ public class RestaurantServer {
     // ═══════════════════════════════════════════
     //  SNAPSHOT + BROADCAST
     // ═══════════════════════════════════════════
-    private synchronized String snapshot() {
+    private String snapshot() throws SQLException {
         StringJoiner j = new StringJoiner("\n");
-        for (var o : orders.values()) j.add(o.wire());
+        for (var o : orderDAO.active()) j.add(o.wire());
         return j.toString();
     }
 
@@ -63,7 +70,7 @@ public class RestaurantServer {
         }
     }
 
-    private void snapshotAll() {
+    private void snapshotAll() throws SQLException {
         Message m = new Message(Message.Type.SNAPSHOT, "SERVER", 0, snapshot());
         broadcast(null, m);
     }
@@ -91,7 +98,7 @@ public class RestaurantServer {
     }
 
     // ─── REGISTER ───
-    private void handleRegister(ClientHandler c, Message m) {
+    private void handleRegister(ClientHandler c, Message m) throws SQLException {
         if (!Set.of("STAFF", "KITCHEN").contains(m.getSenderRole())) {
             c.error("Vai trò không hợp lệ");
             return;
@@ -102,122 +109,44 @@ public class RestaurantServer {
     }
 
     // ─── REQUEST_SNAPSHOT ───
-    private void handleRequestSnapshot(ClientHandler c) {
+    private void handleRequestSnapshot(ClientHandler c) throws SQLException {
         if (c.authorized()) {
             c.send(new Message(Message.Type.SNAPSHOT, "SERVER", 0, snapshot()));
         }
     }
 
-    // ─── CREATE_ORDER ───
-    private void handleCreateOrder(ClientHandler c, Message m, int table) {
+    // One CREATE_ORDER message creates one order and one item, preserving legacy UI protocol.
+    private void handleCreateOrder(ClientHandler c, Message m, int table) throws SQLException {
         if (!c.staff()) return;
-
         String[] x = m.getContent().split("\t", 3);
-        if (table < 1 || table > 30 || x.length < 2) {
-            throw new IllegalArgumentException("Thông tin đặt món không hợp lệ");
-        }
-
-        Menu.Dish d = Menu.get(x[0]);
+        if (x.length < 2) throw new IllegalArgumentException("Thiếu mã món hoặc số lượng");
+        Menu.Dish dish = Menu.get(x[0]);
+        if (dish == null) throw new IllegalArgumentException("Món không tồn tại trong giao diện");
         int qty = Integer.parseInt(x[1]);
-        if (d == null || qty < 1 || qty > 30) {
-            throw new IllegalArgumentException("Món hoặc số lượng không hợp lệ");
-        }
-
         String note = x.length == 3 ? Protocol.decode(x[2]) : "";
-        if (note.length() > 200) {
-            throw new IllegalArgumentException("Ghi chú quá dài");
-        }
-
-        Protocol.Order o = new Protocol.Order(
-                nextId.incrementAndGet(), table, d.id(), qty,
-                "NEW", System.currentTimeMillis(), note);
-        orders.put(o.id(), o);
-
-        c.send(new Message(Message.Type.ORDER_ACK, "SERVER", table,
-                "Đã gửi " + d.name() + " x" + qty + " đến bếp"));
-
-        broadcast("KITCHEN", new Message(Message.Type.NEW_ORDER_NOTIFY, "SERVER", table, o.wire()));
+        Protocol.Order order = orderDAO.create(table, dish.id(), qty, note, UUID.randomUUID().toString());
+        c.send(new Message(Message.Type.ORDER_ACK, "SERVER", table, "Đã gửi " + dish.name() + " x" + qty + " đến bếp"));
+        broadcast("KITCHEN", new Message(Message.Type.NEW_ORDER_NOTIFY, "SERVER", table, order.wire()));
         snapshotAll();
-
-        System.out.println("[ORDER] " + o.id() + " table " + table);
     }
-
-    // ─── UPDATE_COOK_STATUS ───
-    private void handleUpdateCookStatus(ClientHandler c, Message m, int table) {
+    private void handleUpdateCookStatus(ClientHandler c, Message m, int table) throws SQLException {
         if (!c.kitchen()) return;
-
         String[] x = m.getContent().split("\t", 2);
-        long id = Long.parseLong(x[0]);
-        String status = x.length > 1 ? x[1] : "";
-
-        Protocol.Order old = orders.get(id);
-        if (old == null || old.table() != table) {
-            throw new IllegalArgumentException("Không tìm thấy đơn");
-        }
-
-        boolean valid = (old.status().equals("NEW") && status.equals("COOKING"))
-                     || (old.status().equals("COOKING") && status.equals("READY"));
-        if (!valid) {
-            throw new IllegalArgumentException("Chuyển trạng thái không hợp lệ");
-        }
-
-        Protocol.Order o = new Protocol.Order(
-                old.id(), old.table(), old.dish(), old.qty(),
-                status, old.created(), old.note());
-        orders.put(id, o);
-
-        if (status.equals("READY")) {
-            broadcast("STAFF", new Message(Message.Type.SERVE_NOTIFY, "SERVER", table, o.wire()));
-        }
+        if (x.length != 2) throw new IllegalArgumentException("Thiếu trạng thái");
+        Protocol.Order order = orderDAO.updateItem(Long.parseLong(x[0]), table, x[1]);
+        if (order.status().equals("READY")) broadcast("STAFF", new Message(Message.Type.SERVE_NOTIFY, "SERVER", table, order.wire()));
         snapshotAll();
     }
-
-    // ─── REQUEST_CHECKOUT ───
-    private void handleRequestCheckout(ClientHandler c, int table) {
+    private void handleRequestCheckout(ClientHandler c, int table) throws SQLException {
         if (!c.staff()) return;
-
-        long total = 0;
-        StringBuilder b = new StringBuilder();
-
-        for (var o : orders.values()) {
-            if (o.table() == table) {
-                Menu.Dish d = Menu.get(o.dish());
-                if (d != null) {
-                    long line = (long) d.price() * o.qty();
-                    total += line;
-                    b.append(d.name())
-                     .append(" x").append(o.qty())
-                     .append(" = ").append(line)
-                     .append("\n");
-                }
-            }
-        }
-
-        if (total == 0) {
-            throw new IllegalArgumentException("Bàn chưa có món để thanh toán");
-        }
-
-        c.send(new Message(Message.Type.BILL_INFO, "SERVER", table, b + "TOTAL\t" + total));
+        PaymentDAO.Bill bill = paymentDAO.bill(table);
+        if (bill.total().signum() == 0) throw new IllegalArgumentException("Bàn chưa có món để thanh toán");
+        c.send(new Message(Message.Type.BILL_INFO, "SERVER", table, bill.details() + "TOTAL\t" + bill.total().toBigIntegerExact()));
     }
-
-    // ─── CONFIRM_PAYMENT ───
-    private void handleConfirmPayment(ClientHandler c, int table) {
+    private void handleConfirmPayment(ClientHandler c, int table) throws SQLException {
         if (!c.staff()) return;
-
-        boolean exists = orders.values().stream().anyMatch(o -> o.table() == table);
-        if (!exists) {
-            throw new IllegalArgumentException("Bàn không có đơn");
-        }
-
-        boolean pending = orders.values().stream()
-                .anyMatch(o -> o.table() == table && !o.status().equals("READY"));
-        if (pending) {
-            throw new IllegalArgumentException("Vẫn còn món chưa hoàn thành");
-        }
-
-        orders.values().removeIf(o -> o.table() == table);
-        broadcast("STAFF", new Message(Message.Type.PAYMENT_DONE, "SERVER", table,
-                "Bàn " + table + " đã thanh toán"));
+        paymentDAO.pay(table);
+        broadcast("STAFF", new Message(Message.Type.PAYMENT_DONE, "SERVER", table, "Bàn " + table + " đã thanh toán"));
         snapshotAll();
     }
 
