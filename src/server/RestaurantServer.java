@@ -17,6 +17,13 @@ public class RestaurantServer {
     //  STATE
     // ═══════════════════════════════════════════
     private final int port;
+    private volatile boolean running;
+    private volatile ServerSocket listener;
+    private final java.util.List<java.util.function.Consumer<String>> observers = new java.util.concurrent.CopyOnWriteArrayList<>();
+    public void onActivity(java.util.function.Consumer<String> callback) { observers.add(callback); }
+    private void log(String line) { System.out.println(line); observers.forEach(o -> o.accept(line)); }
+    public void stop() { running = false; try { if(listener != null) listener.close(); } catch(IOException ignored) {} for(ClientHandler c: clients) try { c.socket.close(); } catch(IOException ignored) {} }
+    public java.util.List<String> connectedUsers() { return clients.stream().filter(c -> !c.role.isEmpty()).map(c -> c.username+" | "+c.role+" | ONLINE").sorted().toList(); }
     private final Set<ClientHandler> clients = ConcurrentHashMap.newKeySet();
     private final OrderDAO orderDAO = new OrderDAO();
     private final PaymentDAO paymentDAO = new PaymentDAO();
@@ -43,9 +50,10 @@ public class RestaurantServer {
             orderDAO.active();
         } catch (SQLException ex) { throw new IOException("Aiven database unavailable: " + ex.getMessage(), ex); }
         try (ServerSocket ss = new ServerSocket(port)) {
-            System.out.println("[SERVER] Listening TCP port " + port);
-            while (true) {
-                Socket s = ss.accept();
+            listener = ss; running = true;
+            log("[SERVER] Listening TCP port " + port);
+            while (running) {
+                Socket s; try { s = ss.accept(); } catch(SocketException ex) { if(!running) break; throw ex; }
                 s.setKeepAlive(true);
 
                 ClientHandler h = new ClientHandler(s);
@@ -88,7 +96,9 @@ public class RestaurantServer {
                 case CREATE_ORDER -> handleCreateOrder(c, m, table);
                 case UPDATE_COOK_STATUS -> handleUpdateCookStatus(c, m, table);
                 case REQUEST_CHECKOUT -> handleRequestCheckout(c, table);
-                case CONFIRM_PAYMENT -> handleConfirmPayment(c, table);
+                case CONFIRM_PAYMENT -> handleConfirmPayment(c, m, table);
+                case REQUEST_PAYMENT_HISTORY -> { if(c.cashier()) c.send(new Message(Message.Type.PAYMENT_HISTORY,"SERVER",0,paymentDAO.history())); }
+                case ADD_ITEM -> handleCreateOrder(c,m,table);
                 case PING -> { }
                 default -> c.error("Lệnh không được hỗ trợ");
             }
@@ -99,13 +109,15 @@ public class RestaurantServer {
 
     // ─── REGISTER ───
     private void handleRegister(ClientHandler c, Message m) throws SQLException {
-        if (!Set.of("STAFF", "KITCHEN").contains(m.getSenderRole())) {
+        if (!Set.of("STAFF", "KITCHEN", "CASHIER").contains(m.getSenderRole())) {
             c.error("Vai trò không hợp lệ");
             return;
         }
-        c.role = m.getSenderRole();
+        if(m.getContent().isBlank() || m.getContent().length() > 60) throw new IllegalArgumentException("Tên nhân viên không hợp lệ");
+        c.role = m.getSenderRole(); c.username = m.getContent().trim();
+        c.send(new Message(Message.Type.AUTH_OK,"SERVER",0,c.username));
         c.send(new Message(Message.Type.SNAPSHOT, "SERVER", 0, snapshot()));
-        System.out.println("[CONNECT] " + c.role + " " + c.socket.getRemoteSocketAddress());
+        log("[CONNECT] " + c.username + " (" + c.role + ") " + c.socket.getRemoteSocketAddress());
     }
 
     // ─── REQUEST_SNAPSHOT ───
@@ -117,14 +129,14 @@ public class RestaurantServer {
 
     // One CREATE_ORDER message creates one order and one item, preserving legacy UI protocol.
     private void handleCreateOrder(ClientHandler c, Message m, int table) throws SQLException {
-        if (!c.staff()) return;
+        if (!Set.of("STAFF", "CASHIER").contains(c.role)) { c.error("Không có quyền"); return; }
         String[] x = m.getContent().split("\t", 3);
         if (x.length < 2) throw new IllegalArgumentException("Thiếu mã món hoặc số lượng");
         Menu.Dish dish = Menu.get(x[0]);
         if (dish == null) throw new IllegalArgumentException("Món không tồn tại trong giao diện");
         int qty = Integer.parseInt(x[1]);
         String note = x.length == 3 ? Protocol.decode(x[2]) : "";
-        Protocol.Order order = orderDAO.create(table, dish.id(), qty, note, UUID.randomUUID().toString());
+        Protocol.Order order = orderDAO.create(table, dish.id(), qty, note, UUID.randomUUID().toString(),c.username);
         c.send(new Message(Message.Type.ORDER_ACK, "SERVER", table, "Đã gửi " + dish.name() + " x" + qty + " đến bếp"));
         broadcast("KITCHEN", new Message(Message.Type.NEW_ORDER_NOTIFY, "SERVER", table, order.wire()));
         snapshotAll();
@@ -138,15 +150,17 @@ public class RestaurantServer {
         snapshotAll();
     }
     private void handleRequestCheckout(ClientHandler c, int table) throws SQLException {
-        if (!c.staff()) return;
+        if (!Set.of("STAFF", "CASHIER").contains(c.role)) { c.error("Không có quyền"); return; }
         PaymentDAO.Bill bill = paymentDAO.bill(table);
         if (bill.total().signum() == 0) throw new IllegalArgumentException("Bàn chưa có món để thanh toán");
-        c.send(new Message(Message.Type.BILL_INFO, "SERVER", table, bill.details() + "TOTAL\t" + bill.total().toBigIntegerExact()));
+        c.send(new Message(Message.Type.BILL_INFO, "SERVER", table, bill.details() + "TOTAL\t" + bill.total().toPlainString()));
     }
-    private void handleConfirmPayment(ClientHandler c, int table) throws SQLException {
-        if (!c.staff()) return;
-        paymentDAO.pay(table);
-        broadcast("STAFF", new Message(Message.Type.PAYMENT_DONE, "SERVER", table, "Bàn " + table + " đã thanh toán"));
+    private void handleConfirmPayment(ClientHandler c, Message m, int table) throws SQLException {
+        if (!c.cashier()) return;
+        paymentDAO.pay(table, m.getContent());
+        log("[PAYMENT] " + c.username + " paid table " + table + " via " + m.getContent());
+        broadcast(null, new Message(Message.Type.PAYMENT_DONE, "SERVER", table, "Bàn " + table + " đã thanh toán"));
+        broadcast("CASHIER",new Message(Message.Type.PAYMENT_HISTORY,"SERVER",0,paymentDAO.history()));
         snapshotAll();
     }
 
@@ -157,6 +171,7 @@ public class RestaurantServer {
 
         final Socket socket;
         volatile String role = "";
+        volatile String username = "";
         PrintWriter writer;
 
         ClientHandler(Socket s) {
@@ -179,6 +194,8 @@ public class RestaurantServer {
             }
             return true;
         }
+
+        boolean cashier() { if (!"CASHIER".equals(role)) { error("Chỉ thu ngân được thao tác này"); return false; } return true; }
 
         boolean kitchen() {
             if (!"KITCHEN".equals(role)) {
@@ -225,7 +242,7 @@ public class RestaurantServer {
             } catch (IOException ignored) {
             } finally {
                 clients.remove(this);
-                System.out.println("[DISCONNECT] " + role);
+                log("[DISCONNECT] " + username + " (" + role + ")");
             }
         }
     }

@@ -20,6 +20,8 @@ public abstract class BaseFrame extends JFrame {
     protected JPanel content    = Theme.panel(new BorderLayout(0, 18));
     protected JTextField host   = Theme.field("localhost", 12);
     protected JTextField port   = Theme.field("5001", 5);
+    protected JTextField username = Theme.field("", 12);
+    private JButton connectButton;
 
     // ─── Điều hướng ───
     private final JPanel breadcrumb = Theme.panel(new FlowLayout(FlowLayout.LEFT, 6, 0));
@@ -70,7 +72,7 @@ public abstract class BaseFrame extends JFrame {
         side.setLayout(new BoxLayout(side, BoxLayout.Y_AXIS));
         side.setBorder(new EmptyBorder(32, 22, 24, 22));
 
-        JLabel brand = Theme.label("RESTAURANT SYSTEM", 24, true, Color.WHITE);
+        JLabel brand = Theme.label("RESTAURANT", 24, true, Color.WHITE);
         brand.setAlignmentX(Component.LEFT_ALIGNMENT);
         side.add(brand);
 
@@ -169,10 +171,10 @@ public abstract class BaseFrame extends JFrame {
         // ─── Phải: kết nối ───
         JPanel conn = Theme.panel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         conn.add(connection);
-        conn.add(host);
-        conn.add(port);
+        
 
         JButton connect = Theme.button("Kết nối", Theme.ORANGE);
+        connectButton = connect;
         connect.setName("btnConnect");
         conn.add(connect);
         top.add(conn, BorderLayout.EAST);
@@ -230,18 +232,24 @@ public abstract class BaseFrame extends JFrame {
                             s.startsWith("Đã") ? Theme.GREEN : Theme.ORANGE);
                 }));
 
-        JButton connect = findButton(getContentPane(), "Kết nối");
-        if (connect != null) {
-            connect.addActionListener(e -> {
-                try {
-                    net.close();
-                    net.connect(host.getText().trim(),
-                            Integer.parseInt(port.getText().trim()));
-                } catch (NumberFormatException ex) {
-                    notice("Cổng không hợp lệ");
+        connectButton.addActionListener(e -> showSettings());
+    }
+
+    private void showSettings() {
+        JPanel form = new JPanel(new GridLayout(0, 2, 8, 8));
+        form.add(new JLabel("Tên nhân viên:")); form.add(username);
+        form.add(new JLabel("Server IP / hostname:")); form.add(host);
+        form.add(new JLabel("TCP port:")); form.add(port);
+        if (JOptionPane.showConfirmDialog(this, form, "Cài đặt kết nối", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
+            try {
+                int tcpPort = Integer.parseInt(port.getText().trim());
+                if (tcpPort < 1 || tcpPort > 65535 || username.getText().trim().isEmpty()) {
+                    notice("Nhập tên nhân viên và cổng hợp lệ"); return;
                 }
-            });
-            SwingUtilities.invokeLater(connect::doClick);
+                net.close();
+                net.setUsername(username.getText().trim());
+                net.connect(host.getText().trim(), tcpPort);
+            } catch (NumberFormatException ex) { notice("Cổng không hợp lệ"); }
         }
     }
 
@@ -271,6 +279,7 @@ public abstract class BaseFrame extends JFrame {
                 }
             }
             render();
+            onSnapshot();
         } else if (m.getType() == Message.Type.ERROR) {
             notice(m.getContent());
         } else {
@@ -304,4 +313,5 @@ public abstract class BaseFrame extends JFrame {
     protected abstract void render();
     protected abstract String role();
     protected void onMessage(Message m) {}
+    protected void onSnapshot() {}
 }

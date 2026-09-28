@@ -15,7 +15,7 @@ public class Message {
         ORDER_ACK, 
         PAYMENT_DONE, 
         REQUEST_SNAPSHOT,
-        PING, ADD_ITEM, ORDER_UPDATE
+        PING, ADD_ITEM, ORDER_UPDATE, PAYMENT_HISTORY, REQUEST_PAYMENT_HISTORY, CLIENT_LIST, AUTH_OK
     }
 
     private Type type;
@@ -48,4 +48,6 @@ public class Message {
     public String getSenderRole() { return senderRole; }
     public int getTableNo() { return tableNo; }
     public String getContent() { return content; }
+
+	
 }

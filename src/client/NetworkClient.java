@@ -14,6 +14,8 @@ public class NetworkClient {
     private volatile boolean connected;
 
     private final String role;
+    private volatile String username = "";
+    public void setUsername(String name) { username = name; }
     private final Consumer<Message> onMessage;
     private final Consumer<String> onState;
 
@@ -37,7 +39,7 @@ public class NetworkClient {
                 connected = true;
                 onState.accept("Đã kết nối • " + host + ":" + port);
 
-                send(new Message(Message.Type.REGISTER, role, 0, ""));
+                send(new Message(Message.Type.REGISTER, role, 0, username));
 
                 try (BufferedReader r = new BufferedReader(
                         new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {

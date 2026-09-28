@@ -22,7 +22,7 @@ public class KitchenClient extends BaseFrame {
     //  KHỞI TẠO
     // ═══════════════════════════════════════════
     public KitchenClient() {
-        super("Kitchen Display System", "KITCHEN");
+        super("Kitchen", "KITCHEN");
         render();
     }
 
@@ -42,7 +42,7 @@ public class KitchenClient extends BaseFrame {
 
     @Override
     protected String subtitle() {
-        return "Quản lý phiếu bếp • cập nhật tức thời";
+        return "Quản lý phiếu bếp";
     }
 
     @Override
@@ -54,7 +54,12 @@ public class KitchenClient extends BaseFrame {
     @Override
     protected void onMessage(Message m) {
         if (m.getType() == Message.Type.NEW_ORDER_NOTIFY) {
-            java.awt.Toolkit.getDefaultToolkit().beep();
+            Toolkit.getDefaultToolkit().beep();
+        }
+        if (m.getType() == Message.Type.SNAPSHOT
+                || m.getType() == Message.Type.NEW_ORDER_NOTIFY
+                || m.getType() == Message.Type.UPDATE_COOK_STATUS) {
+            SwingUtilities.invokeLater(this::render);
         }
     }
 
@@ -64,21 +69,17 @@ public class KitchenClient extends BaseFrame {
     @Override
     protected void render() {
         content.removeAll();
-
         content.add(buildHeader(), BorderLayout.NORTH);
 
-        // ─── Grid đơn ───
         grid.removeAll();
 
         java.util.List<Protocol.Order> sorted = new ArrayList<>(orders.values());
-        
-        // Lọc theo danh mục
-        if (currentCategory.equals("Đơn mới")) {
-            sorted.removeIf(o -> !o.status().equals("NEW"));
-        } else if (currentCategory.equals("Đang chế biến")) {
-            sorted.removeIf(o -> !o.status().equals("COOKING"));
-        } else if (currentCategory.equals("Sẵn sàng")) {
-            sorted.removeIf(o -> !o.status().equals("READY"));
+
+        switch (currentCategory) {
+            case "Đơn mới"       -> sorted.removeIf(o -> !o.status().equals("NEW"));
+            case "Đang chế biến" -> sorted.removeIf(o -> !o.status().equals("COOKING"));
+            case "Sẵn sàng"      -> sorted.removeIf(o -> !o.status().equals("READY"));
+            default -> { /* Màn hình bếp: hiện tất cả */ }
         }
 
         sorted.sort(
@@ -90,9 +91,7 @@ public class KitchenClient extends BaseFrame {
         for (Protocol.Order o : sorted) grid.add(orderCard(o));
 
         if (sorted.isEmpty()) {
-            grid.add(Theme.label(
-                    "Không có đơn nào ở mục này.",
-                    17, false, Theme.MUTED));
+            grid.add(Theme.label("Không có đơn nào ở mục này.", 17, false, Theme.MUTED));
         }
 
         JPanel wrap = Theme.panel(new BorderLayout());
@@ -127,31 +126,25 @@ public class KitchenClient extends BaseFrame {
     private JPanel orderCard(Protocol.Order o) {
         Menu.Dish d = Menu.get(o.dish());
         JPanel p = Theme.card(new BorderLayout(0, 10));
-
         p.add(buildCardHeader(o), BorderLayout.NORTH);
         p.add(buildCardBody(o, d), BorderLayout.CENTER);
         p.add(buildCardAction(o), BorderLayout.SOUTH);
-
         return p;
     }
 
     private JPanel buildCardHeader(Protocol.Order o) {
         JPanel h = Theme.panel(new BorderLayout());
-
-        h.add(Theme.label(
-                String.format("BÀN %02d", o.table()),
-                20, true, Theme.NAVY),
+        h.add(Theme.label(String.format("BÀN %02d", o.table()), 20, true, Theme.NAVY),
                 BorderLayout.WEST);
 
         String state = switch (o.status()) {
-            case "NEW"     -> "● ĐƠN MỚI";
-            case "COOKING" -> "◉ ĐANG NẤU";
-            default        -> "✓ HOÀN THÀNH";
+            case "NEW"     -> "ĐƠN MỚI";
+            case "COOKING" -> "ĐANG NẤU";
+            default        -> "HOÀN THÀNH";
         };
         h.add(Theme.label(state, 11, true,
-                o.status().equals("READY") ? Theme.GREEN : Theme.ORANGE),
+                        o.status().equals("READY") ? Theme.GREEN : Theme.ORANGE),
                 BorderLayout.EAST);
-
         return h;
     }
 
@@ -163,6 +156,7 @@ public class KitchenClient extends BaseFrame {
         labels.add(Theme.label(d == null ? o.dish() : d.name(), 17, true, Theme.NAVY));
         labels.add(Theme.label("Số lượng: " + o.qty() + "   •   #" + o.id(),
                 12, false, Theme.MUTED));
+        labels.add(Theme.label("Người gửi: " + (o.sender().isBlank() ? "Không rõ" : o.sender()), 12, true, Theme.NAVY));
         labels.add(Theme.label("Lúc: " + new SimpleDateFormat("HH:mm:ss")
                 .format(new Date(o.created())), 12, false, Theme.MUTED));
 
@@ -175,32 +169,26 @@ public class KitchenClient extends BaseFrame {
     }
 
     private JButton buildCardAction(Protocol.Order o) {
-        boolean isNew = o.status().equals("NEW");
-        boolean isCooking = o.status().equals("COOKING");
-        boolean isReady = o.status().equals("READY");
-
-        if (isReady) {
-            JButton action = Theme.button("✓ Đã hoàn thành", Theme.MUTED);
+        if (o.status().equals("READY")) {
+            JButton action = Theme.button("Đã hoàn thành", Theme.MUTED);
             action.setEnabled(false);
             return action;
         }
 
+        boolean isNew = o.status().equals("NEW");
         String next = isNew ? "COOKING" : "READY";
 
         JButton action = Theme.button(
-                isNew ? "Bắt đầu chế biến  →" : "✓ Hoàn thành & báo phục vụ",
+                isNew ? "Bắt đầu chế biến" : "Hoàn thành & báo phục vụ",
                 isNew ? Theme.ORANGE : Theme.GREEN);
 
-        action.addActionListener(e -> {
-            send(Message.Type.UPDATE_COOK_STATUS, o.table(), o.id() + "\t" + next);
-            // Sau khi hoàn thành xong món (chuyển sang READY), nếu mục hiện tại không phải
-            // "Màn hình bếp" hoặc "Sẵn sàng", giao diện sẽ tự động được cập nhật khi nhận message
-            // trả về từ Server để không hiển thị món này nữa.
-        });
+        action.addActionListener(e ->
+                send(Message.Type.UPDATE_COOK_STATUS, o.table(), o.id() + "\t" + next));
 
         return action;
     }
 
+    
     // ═══════════════════════════════════════════
     //  ENTRY
     // ═══════════════════════════════════════════

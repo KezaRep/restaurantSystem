@@ -5,6 +5,7 @@ import model.Menu;
 import ui.*;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.util.*;
 
@@ -17,7 +18,11 @@ public class StaffClient extends BaseFrame {
 
     private final JLabel totalLabel   = Theme.label("0 đ", 23, true, Theme.ORANGE);
     private final JPanel menuGrid     = Theme.panel(new GridLayout(0, 3, 14, 14));
-    private final JPanel orderList    = Theme.panel(new GridLayout(0, 1, 5, 5));
+    private final DefaultTableModel orderModel = new DefaultTableModel(
+            new Object[]{"Món ăn", "Số lượng", "Thành tiền"},0){
+        @Override public boolean isCellEditable(int r,int c){return false;}
+    };
+    private final JTable orderTable = new JTable(orderModel);
     private final JLabel selectedLabel = Theme.label("Bàn 01", 20, true, Theme.NAVY);
     private final JComboBox<Integer> tableBox = new JComboBox<>();
     private final Map<String, Integer> cart = new LinkedHashMap<>();
@@ -148,40 +153,29 @@ public class StaffClient extends BaseFrame {
     }
 
     private JScrollPane buildCartList() {
-        orderList.removeAll();
+        orderModel.setRowCount(0);
         long total = 0;
-
-        // Món trong giỏ chưa gửi
-        for (var entry : cart.entrySet()) {
-            Menu.Dish d = Menu.get(entry.getKey());
-            if (d != null) {
-                total += (long) d.price() * entry.getValue();
-                orderList.add(cartLine(
-                        d.name() + " x" + entry.getValue(),
-                        Theme.money((long) d.price() * entry.getValue()),
-                        () -> { cart.remove(d.id()); render(); }));
-            }
-        }
-
-        // Món đã gửi bếp của bàn hiện tại
+        // Show already sent items and pending cart items in the same table.
         for (Protocol.Order o : orders.values()) {
-            if (o.table() == selectedTable) {
-                Menu.Dish d = Menu.get(o.dish());
-                if (d != null) {
-                    total += (long) d.price() * o.qty();
-                    orderList.add(cartLine(
-                            d.name() + " x" + o.qty(),
-                            status(o.status()),
-                            null));
-                }
-            }
+            if (o.table()!=selectedTable) continue;
+            Menu.Dish d=Menu.get(o.dish()); if(d==null)continue;
+            long line=(long)d.price()*o.qty();total+=line;
+            orderModel.addRow(new Object[]{d.name(),o.qty(),Theme.money(line)});
         }
-
-        cartTotal = total;
-
-        JPanel listWrap = Theme.panel(new BorderLayout());
-        listWrap.add(orderList, BorderLayout.NORTH);
-        return scroll(listWrap);
+        for (var e:cart.entrySet()) {
+            Menu.Dish d=Menu.get(e.getKey());if(d==null)continue;
+            long line=(long)d.price()*e.getValue();total+=line;
+            orderModel.addRow(new Object[]{d.name()+" (chưa gửi)",e.getValue(),Theme.money(line)});
+        }
+        cartTotal=total;
+        orderTable.setRowHeight(34);
+        orderTable.setFont(new Font("Segoe UI",Font.PLAIN,12));
+        orderTable.getTableHeader().setFont(new Font("Segoe UI",Font.BOLD,12));
+        orderTable.setFillsViewportHeight(true);
+        orderTable.getColumnModel().getColumn(0).setPreferredWidth(145);
+        orderTable.getColumnModel().getColumn(1).setPreferredWidth(65);
+        orderTable.getColumnModel().getColumn(2).setPreferredWidth(105);
+        return scroll(orderTable);
     }
 
     private long cartTotal = 0;   // lưu tạm để bottom dùng

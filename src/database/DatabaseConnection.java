@@ -7,14 +7,13 @@ import java.sql.SQLException;
 public class DatabaseConnection {
 
     private static final String HOST = "mysql-3f3645ac-restaurant-management990.g.aivencloud.com";
-
     private static final String PORT = "14981";
 
     private static final String DATABASE = "restaurant_db";
 
     private static final String USER = "avnadmin";
 
-    private static final String PASSWORD = System.getenv("AIVEN_DB_PASSWORD");
+    private static final String PASSWORD = System.getenv("AIVEN_DB_PASSWORD"); ;
 
     public static Connection getConnection()
             throws SQLException {
@@ -39,6 +38,7 @@ public class DatabaseConnection {
             );
         }
 
+        if (PASSWORD == null || PASSWORD.isBlank()) throw new SQLException("Set RESTAURANT_DB_PASSWORD environment variable");
         return DriverManager.getConnection(
                 url,
                 USER,
