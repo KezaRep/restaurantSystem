@@ -178,6 +178,22 @@ public class CashierClient extends BaseFrame {
         left.add(Theme.label("Nhấn vào bàn đang phục vụ để xem hóa đơn", 22, true, Theme.NAVY));
         header.add(left, BorderLayout.WEST);
 
+        // ─── Tổng tiền của bàn đang chọn ───
+        JPanel right = Theme.panel(new GridLayout(2, 1, 0, 2));
+
+        if (selectedTable > 0 && tableTotals.getOrDefault(selectedTable, 0L) > 0) {
+            long total = tableTotals.get(selectedTable);
+            right.add(Theme.label(
+                    String.format("BÀN %02d ĐANG PHỤC VỤ", selectedTable),
+                    11, true, MUTED));
+            right.add(Theme.label(Theme.money(total), 20, true, ORANGE));
+        } else {
+            right.add(Theme.label("CHƯA CHỌN BÀN", 11, true, MUTED));
+            right.add(Theme.label("—", 20, true, MUTED));
+        }
+
+        header.add(right, BorderLayout.EAST);
+
         return header;
     }
 
@@ -306,16 +322,7 @@ public class CashierClient extends BaseFrame {
         JPanel bottom = new JPanel(new GridLayout(0, 1, 0, 9));
         bottom.setOpaque(false);
 
-        // ─── TỔNG CỘNG: label cam trên, số tiền cam dưới ───
-        JPanel totalBlock = new JPanel(new GridLayout(2, 1, 0, 2));
-        totalBlock.setOpaque(false);
-        totalBlock.add(Theme.label("TỔNG CỘNG", 12, true, ORANGE));
-
-        JPanel totalRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        totalRow.setOpaque(false);
-        totalRow.add(totalLabel);
-        totalBlock.add(totalRow);
-        bottom.add(totalBlock);
+       
 
         // Phương thức thanh toán
         bottom.add(Theme.label("Phương thức thanh toán", 12, true, MUTED));

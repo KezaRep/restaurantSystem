@@ -1,6 +1,5 @@
-/database/
-/server/
-/client/
-/ui/
 /dao/
+/database/
 /model/
+/server/
+/ui/
